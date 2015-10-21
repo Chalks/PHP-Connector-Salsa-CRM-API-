@@ -9,7 +9,9 @@ class Salsa {
 	const AUTH_TIMEOUT = 3600; // 1 hour timeout in seconds (docs recommend 'about 2 hours')
 	const GROUPS_COLUMNS = ["groups_KEY", "organization_KEY", "chapter_KEY", "Last_Modified", "Date_Created", "Group_Name", "Reference_Name", "parent_KEY", "Description", "Notes", "Display_To_User_BOOLVALUE", "Display_To_User", "Listserve_Type", "Subscription_Type", "Manager", "Moderator_Emails", "Subject_Prefix", "Listserve_Responses", "Append_Header", "Append_Footer", "Custom_Headers", "Listserve_Options", "external_ID", "From_Email", "From_Name", "Reply_To", "Headers_To_Remove", "Confirmation_Message", "Auto_Update_BOOLVALUE", "Auto_Update", "query_KEY", "Smart_Group_Options", "Smart_Group_Error", "enable_statistics_BOOLVALUE", "enable_statistics", "join_email_trigger_KEYS", "add_to_chapter_KEY", "salesforce_id"];
 
-	private $API_HOST = 'https://salsa4.salsalabs.com/';
+	private $salsaNode;
+	private $orgKey;
+	private $apiHost;
 
 	private $validCredentials;
 	private $lastAuth;
@@ -17,16 +19,22 @@ class Salsa {
 	private $format = 'json';
 	private $curlHandler;
 
-	public static function getInstance($email, $password) {
+	public static function getInstance($email, $password, $node, $orgKey) {
+		if(null !== static::$instance) {
+			static::$instance->setNode($node);
+			static::$instance->setOrg($orgKey);
+		}
 		if(null === static::$instance) {
-			static::$instance = new static($email, $password);
+			static::$instance = new static($email, $password, $node, $orgKey);
 		} else if(!static::$instance->isAuthenticated() || (microtime(true) - static::$instance->lastAuthentication()) < Salsa::AUTH_TIMEOUT) {
 			static::$instance->authenticate($email, $password);
 		}
 		return static::$instance;
 	}
 
-	protected function __construct($email, $password) {
+	protected function __construct($email, $password, $node, $orgKey) {
+		$this->setNode($node);
+		$this->setOrg($orgKey);
 		$this->curlHandler = curl_init();
 		curl_setopt($this->curlHandler, CURLOPT_HTTPGET, true);
 		curl_setopt($this->curlHandler, CURLOPT_RETURNTRANSFER, true);
@@ -56,7 +64,7 @@ class Salsa {
 		}
 		$params['Group_Name'] = $this->filterGroupName($params['Group_Name']);
 		if($this->validGroupName($params['Group_Name']) !== false) {
-			$url = $this->API_HOST . "save?" . $this->buildParamString($params) . "&" . $this->format;
+			$url = $this->apiHost . "save?" . $this->buildParamString($params) . "&" . $this->format;
 			return $this->exec($url);
 		} else {
 			return json_decode('{"status":"failure","message":"Pre-existing Group_Name or no Group_Name was provided"}');
@@ -66,7 +74,7 @@ class Salsa {
 	public function getGroup($key) {
 		$params['object'] = "groups";
 		$params['key'] = $key;
-		$url = $this->API_HOST . "api/getObject.sjs?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "api/getObject.sjs?" . $this->buildParamString($params) . "&" . $this->format;
 		return $this->exec($url);
 	}
 
@@ -74,7 +82,7 @@ class Salsa {
 		$params['object'] = "groups";
 		$params['condition'] = "Group_Name=" . $name;
 		$params['limit'] = 1;
-		$url = $this->API_HOST . "api/getObjects.sjs?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "api/getObjects.sjs?" . $this->buildParamString($params) . "&" . $this->format;
 		$groups = $this->exec($url);
 		if(count($groups) > 0) {
 			return $groups[0];
@@ -86,7 +94,7 @@ class Salsa {
 		$params['object'] = "groups";
 		$params['condition'] = "parent_KEY=" . $key;
 		$params['orderBy'] = "-Date_Created";
-		$url = $this->API_HOST . "api/getObjects.sjs?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "api/getObjects.sjs?" . $this->buildParamString($params) . "&" . $this->format;
 		return $this->exec($url);
 	}
 
@@ -108,7 +116,7 @@ class Salsa {
 			$params['Group_Name'] = $this->filterGroupName($params['Group_Name']);
 		}
 		if(!isset($params['Group_Name']) || $this->validGroupName($params['Group_Name'], $key) !== false) {
-			$url = $this->API_HOST . "save?" . $this->buildParamString($params) . "&" . $this->format;
+			$url = $this->apiHost . "save?" . $this->buildParamString($params) . "&" . $this->format;
 			return $this->exec($url);
 		} else {
 			return json_decode('{"status":"failure","message":"Can not rename group to pre-existing Group_Name"}');
@@ -118,7 +126,7 @@ class Salsa {
 	public function deleteGroup($key) {
 		$params['object'] = "groups";
 		$params['key'] = $key;
-		$url = $this->API_HOST . "delete?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "delete?" . $this->buildParamString($params) . "&" . $this->format;
 		return $this->exec($url);
 	}
 
@@ -156,38 +164,50 @@ class Salsa {
 	/*** END GROUP CRUD ***/
 
 	/*** SUPPORTER CRUD ***/
+	public function createSupporter($attr) {
+		return false;
+	}
+
+	public function getSupporter($supporterKey) {
+		return null;
+	}
 
 	public function getAllSupporters() {
 		$params['object'] = "supporter";
-		$url = $this->API_HOST . "api/getObjects.sjs?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "api/getObjects.sjs?" . $this->buildParamString($params) . "&" . $this->format;
 		return $this->exec($url);
 	}
 
 	public function getSupportersByGroup($groupKey) {
 		$params['object'] = "supporter_groups(supporter_KEY)supporter";
 		$params['condition'] = "groups_KEY=" . $groupKey;
-		$url = $this->API_HOST . "api/getLeftJoin.sjs?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "api/getLeftJoin.sjs?" . $this->buildParamString($params) . "&" . $this->format;
 		return $this->exec($url);
 	}
 
 	public function getSupportersWithPicturesByGroup($groupKey) {
 		$params['object'] = "supporter_groups(supporter_KEY)supporter(supporter_KEY)supporter_picture";
 		$params['condition'] = "groups_KEY=" . $groupKey;
-		$url = $this->API_HOST . "api/getLeftJoin.sjs?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "api/getLeftJoin.sjs?" . $this->buildParamString($params) . "&" . $this->format;
 		return $this->exec($url);
 	}
 
 	public function getSupporterPicture($supporterKey) {
+		// TODO make this return a supporter object like getSupportersWithPicturesByGroup
 		$params['object'] = "supporter_picture";
 		$params['condition'] = "supporter_KEY=" . $supporterKey;
-		$url = $this->API_HOST . "api/getObjects.sjs?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "api/getObjects.sjs?" . $this->buildParamString($params) . "&" . $this->format;
 		return $this->exec($url);
+	}
+
+	public function updateSupporter($key, $attr) {
+		return false;
 	}
 
 	public function deleteSupporter($key) {
 		$params['object'] = "supporter";
 		$params['key'] = $key;
-		$url = $this->API_HOST . "delete?" . $this->buildParamString($params) . "&" . $this->format;
+		$url = $this->apiHost . "delete?" . $this->buildParamString($params) . "&" . $this->format;
 		return $this->exec($url);
 	}
 
@@ -199,10 +219,26 @@ class Salsa {
 			}
 		}
 	}
-
 	/*** END SUPPORTER CRUD ***/
 
 	/***** GETTERS/SETTERS *****/
+	public function getNode() {
+		return $this->salsaNode;
+	}
+
+	public function setNode($node) {
+		$this->salsaNode = $node;
+		$this->apiHost = "https://$node.salsalabs.com/";
+	}
+
+	public function getOrg() {
+		return $this->orgKey;
+	}
+
+	public function setOrg($orgKey) {
+		$this->orgKey = $orgKey
+	}
+
 	public function getFormat() {
 		return $this->format;
 	}
@@ -241,7 +277,7 @@ class Salsa {
 
 	private function authenticate($email, $password) {
 		$this->lastAuth = microtime(true);
-		$url = $this->API_HOST . "api/authenticate.sjs?email=$email&password=$password&" . $this->format;
+		$url = $this->apiHost . "api/authenticate.sjs?email=$email&password=$password&" . $this->format;
 		return $this->exec($url);
 	}
 	/***** END PRIVATE HELPERS *****/
