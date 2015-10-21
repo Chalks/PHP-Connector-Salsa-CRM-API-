@@ -222,6 +222,16 @@ class Salsa {
 	/*** END SUPPORTER CRUD ***/
 
 	/***** GETTERS/SETTERS *****/
+	public function getHost($stripSlash = true) {
+		if($stripSlash) {
+			return substr($this->apiHost, 0, -1);
+		} else {
+			return $this->apiHost;
+		}
+
+	}
+	// setHost is done via setting the Node.
+
 	public function getNode() {
 		return $this->salsaNode;
 	}
@@ -236,7 +246,7 @@ class Salsa {
 	}
 
 	public function setOrg($orgKey) {
-		$this->orgKey = $orgKey
+		$this->orgKey = $orgKey;
 	}
 
 	public function getFormat() {
